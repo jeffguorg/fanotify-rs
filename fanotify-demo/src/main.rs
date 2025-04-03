@@ -159,7 +159,13 @@ fn main() -> Result<(), Error> {
         }
         for event in events.iter_mut() {
             let Some(fd) = event.fd() else {
-                warn!("queue full");
+                if init_flags & (InitFlags::FAN_REPORT_FID | InitFlags::FAN_REPORT_DIR_FID)
+                    != InitFlags::empty()
+                {
+                    warn!("fid not implementd");
+                } else {
+                    warn!("queue full");
+                }
                 continue;
             };
             let path = match std::fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd())) {

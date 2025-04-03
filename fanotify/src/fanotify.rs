@@ -114,7 +114,7 @@ impl Fanotify {
                 //      + (meta) -> event_len                    // add event_len to move to next
                 //   );
                 offset += event.event_len as usize;
-                result.push(Event(event));
+                result.push(Event::new(event));
             }
         }
 
@@ -136,35 +136,42 @@ impl Fanotify {
     }
 }
 
-pub struct Event(pub libc::fanotify_event_metadata);
+pub struct Event {
+    pub fanotify_event_metadata: libc::fanotify_event_metadata,
+}
 
 impl Event {
+    fn new(fanotify_event_metadata: libc::fanotify_event_metadata) -> Self {
+        Self {
+            fanotify_event_metadata,
+        }
+    }
     // compatible to nix::sys::fanotify::FanotifyEvent
     pub fn metadata_version(&self) -> u8 {
-        self.0.vers
+        self.fanotify_event_metadata.vers
     }
     pub fn check_metadata_version(&self) -> bool {
-        self.0.vers == libc::FANOTIFY_METADATA_VERSION
+        self.fanotify_event_metadata.vers == libc::FANOTIFY_METADATA_VERSION
     }
     pub fn fd(&self) -> Option<BorrowedFd> {
-        if self.0.fd == libc::FAN_NOFD {
+        if self.fanotify_event_metadata.fd == libc::FAN_NOFD {
             None
         } else {
-            Some(unsafe { BorrowedFd::borrow_raw(self.0.fd) })
+            Some(unsafe { BorrowedFd::borrow_raw(self.fanotify_event_metadata.fd) })
         }
     }
     pub fn pid(&self) -> i32 {
-        self.0.pid
+        self.fanotify_event_metadata.pid
     }
     pub fn mask(&self) -> MaskFlags {
-        MaskFlags::from_bits_truncate(self.0.mask)
+        MaskFlags::from_bits_truncate(self.fanotify_event_metadata.mask)
     }
 
     // sometimes we don't want to close the fd immediately, so we forget about it, store it somewhere, and drop it later
     // it is safe to just call this method without store it in variable, it will be dropped immediately due to the nature of rust
     pub fn forget_fd(&mut self) -> OwnedFd {
-        let fd = self.0.fd;
-        self.0.fd = libc::FAN_NOFD;
+        let fd = self.fanotify_event_metadata.fd;
+        self.fanotify_event_metadata.fd = libc::FAN_NOFD;
 
         unsafe { OwnedFd::from_raw_fd(fd) }
     }
@@ -172,11 +179,11 @@ impl Event {
 
 impl Drop for Event {
     fn drop(&mut self) {
-        if self.0.fd == libc::FAN_NOFD {
+        if self.fanotify_event_metadata.fd == libc::FAN_NOFD {
             return;
         }
 
-        let e = unsafe { libc::close(self.0.fd) };
+        let e = unsafe { libc::close(self.fanotify_event_metadata.fd) };
         if !std::thread::panicking() && e == libc::EBADF {
             panic!("Closing an invalid file descriptor!");
         };
