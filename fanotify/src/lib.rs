@@ -1,10 +1,10 @@
 #[macro_use]
 mod macros;
 
+pub mod consts;
 pub mod error;
 pub mod fanotify;
-pub mod consts;
 
 pub use bitflags;
 
-pub use fanotify::{Fanotify, Error, Response, Response as FanotifyResponse, Event};
+pub use fanotify::{Error, Event, Fanotify, Response, Response as FanotifyResponse};

@@ -37,7 +37,7 @@ macro_rules! fa_bitflags {
         }
     };
 
-    // from nix: input: accept a list of pub struct 
+    // from nix: input: accept a list of pub struct
     (
         // first
         $(#[$outer:meta])*

@@ -24,7 +24,9 @@ extern "C" fn interrupt_handler(_: i32) {
 }
 
 #[derive(Debug, clap::Parser)]
-#[clap(about="fanotify demo", long_about="
+#[clap(
+    about = "fanotify demo",
+    long_about = "
 monitor filesystem changes demo
 
 to use as storage provider:
@@ -35,7 +37,8 @@ to use as storage provider:
    --mask-flags FAN_ACCESS_PERM           setup permission notification
    --mask-flags FAN_ON_DIR                create events for directories itself
    --mask-flags FAN_EVENT_ON_CHILD        create events for direct children
-")]
+"
+)]
 struct Args {
     #[clap(required(true))]
     path: Vec<String>,
@@ -146,7 +149,7 @@ fn main() -> Result<(), Error> {
 
     let whitelist = args.whitelist;
     let storage_provider = args.providers;
- 
+
     let mut ready = HashSet::new();
     let mut bufferdfds: HashMap<std::path::PathBuf, Vec<OwnedFd>> = HashMap::new();
     let mut arg0map = HashMap::new();
@@ -233,9 +236,7 @@ fn main() -> Result<(), Error> {
                             // is a directory or filled with content
                             metadata.is_dir() || ready.contains(&path)
                         }
-                        Err(error) => {
-                            error.kind() == std::io::ErrorKind::NotFound
-                        }
+                        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
                     };
                     if allowed || whitelist.contains(&arg0) || storage_provider.contains(&arg0) {
                         info!("<<<<< {} allowed", fd.as_raw_fd());
@@ -252,7 +253,6 @@ fn main() -> Result<(), Error> {
                         } else {
                             bufferdfds.insert(path, vec![fd]);
                         }
-                        
                     }
                 }
                 MaskFlags::FAN_CLOSE_WRITE => {

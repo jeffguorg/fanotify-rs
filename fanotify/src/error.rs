@@ -12,7 +12,7 @@ impl Errno {
         Self { raw_errno: errno }
     }
     pub fn errno() -> Self {
-        Self::new(unsafe { *libc::__errno_location() } )
+        Self::new(unsafe { *libc::__errno_location() })
     }
 }
 
