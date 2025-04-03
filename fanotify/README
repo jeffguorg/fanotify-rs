@@ -1,0 +1,5 @@
+rust style fanotify wrapper
+
+------------------------------------------
+
+this crate wraps around calls and consts of fanotify(7) from libc crate.

@@ -1,0 +1,14 @@
+[package]
+name = "fanotify-demo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nix = { version = "0.29", features = ["signal", "user"] }
+fanotify = { path = "../fanotify" }
+
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+
+log = "0.4"
+env_logger = "0.11"
