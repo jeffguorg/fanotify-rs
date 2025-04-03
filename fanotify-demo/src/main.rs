@@ -45,7 +45,7 @@ struct Args {
     #[clap(long, short, default_values_t=default_providers())]
     providers: Vec<String>,
 
-    #[clap(long, short)]
+    #[clap(long, short, default_values_t=default_init_flags())]
     init_flags: Vec<String>,
     #[clap(long, short, default_values_t=default_event_f_flags())]
     event_f_flags: Vec<String>,
@@ -59,6 +59,13 @@ fn default_whitelist() -> Vec<String> {
 
 fn default_providers() -> Vec<String> {
     vec!["tee".to_string()]
+}
+
+fn default_init_flags() -> Vec<String> {
+    vec!["FAN_CLASS_NOTIF", "FAN_REPORT_FID"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn default_event_f_flags() -> Vec<String> {

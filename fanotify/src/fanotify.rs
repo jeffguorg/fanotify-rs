@@ -91,17 +91,30 @@ impl Fanotify {
             }
             let nread = nread as usize;
             let mut offset = 0;
+            // #define FAN_EVENT_OK(meta, len) \
+            //   ((long)(len) => (long)FAN_EVENT_METADATA_LEN)                && // rest buffer can contain a metadata struct
+            //   (long)(meta) ->event_len >= (long)FAN_FAN_EVENT_METADATA_LEN && // struct contains valid size (not implemented)
+            //   (long)(meta) ->event_len <= (long)(len)                         // struct does not read over buffer boundary (not implemented)
             while offset + EVENT_SIZE <= nread {
-                let mut event: MaybeUninit<libc::fanotify_event_metadata> = MaybeUninit::uninit();
+                let mut uninited: MaybeUninit<libc::fanotify_event_metadata> = MaybeUninit::uninit();
                 std::ptr::copy(
                     buffer.as_ptr().add(offset),
-                    event.as_mut_ptr().cast(),
+                    uninited.as_mut_ptr().cast(),
                     EVENT_SIZE,
                 );
+                let event = uninited.assume_init();
 
-                result.push(Event(event.assume_init()));
-
-                offset += EVENT_SIZE;
+                // #define FAN_EVENT_NEXT(meta, len) ((len) -= (meta)->event_len, (struct fanotify_event_metadata*)(((char*)(meta)) + (meta) -> event_len)
+                // meta = FAN_EVENT_NEXT(meta, len) translate to:
+                //   len -= meta->event_len; // shrink rest length
+                //   ,                       // comma operator, evaluate first express, but not using its result
+                // 
+                //   meta = (struct fanotify_event_metadata*) (  // cast pointer back to metadata type
+                //      ((char*)(meta))                          // discard metadata type to increase pointer by 1
+                //      + (meta) -> event_len                    // add event_len to move to next
+                //   );
+                offset += event.event_len as usize;
+                result.push(Event(event));
             }
         }
 
