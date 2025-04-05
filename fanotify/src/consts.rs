@@ -114,3 +114,12 @@ fa_bitflags! {
         FAN_EVENT_ON_CHILD; // enable events on direct
     }
 }
+
+impl MaskFlags {
+    pub fn is_permission_event(&self) -> bool {
+        match self.bits() {
+            FAN_OPEN_PERM | FAN_ACCESS | FAN_OPEN_EXEC_PERM => true,
+            _ => false,
+        }
+    }
+}

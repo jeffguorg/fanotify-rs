@@ -105,6 +105,53 @@ impl Fanotify {
                 );
                 let event = uninited.assume_init();
 
+                #[repr(C)]
+                union fanotify_event_info {
+                    header: libc::fanotify_event_info_header,
+                    fid: libc::fanotify_event_info_fid,
+                    pidfd: libc::fanotify_event_info_pidfd,
+                    error: libc::fanotify_event_info_error,
+                }
+
+                let mut event_info = Vec::new();
+
+                const HEADER_SIZE: usize = std::mem::size_of::<libc::fanotify_event_info_header>();
+
+                let mut header_offset = EVENT_SIZE;
+                while header_offset + HEADER_SIZE < event.event_len as usize {
+                    // pre-check
+                    let mut uninited: MaybeUninit<fanotify_event_info> = MaybeUninit::uninit();
+
+                    std::ptr::copy(
+                        buffer.as_ptr().add(offset+EVENT_SIZE),
+                        uninited.as_mut_ptr().cast(),
+                        EVENT_SIZE,
+                    );
+                    std::ptr::copy(
+                        buffer.as_ptr().add(offset + header_offset),
+                        uninited.as_mut_ptr().add(header_offset).cast(),
+                        (*uninited.as_ptr()).header.len as usize - HEADER_SIZE,
+                    );
+                    let event_info_len = (*uninited.as_ptr()).header.len as usize;
+                    let event_info_type = (*uninited.as_ptr()).header.info_type;
+
+                    match event_info_type {
+                        libc::FAN_EVENT_INFO_TYPE_FID | libc::FAN_EVENT_INFO_TYPE_DFID_NAME | libc::FAN_EVENT_INFO_TYPE_DFID=> {
+                            event_info.push(EventInfo::Fid(uninited.assume_init().fid));
+                        }
+                        libc::FAN_EVENT_INFO_TYPE_PIDFD => {
+                            event_info.push(EventInfo::PidFd(uninited.assume_init().pidfd));
+                        }
+                        libc::FAN_EVENT_INFO_TYPE_ERROR => {
+                            event_info.push(EventInfo::PidFd(uninited.assume_init().pidfd));
+                        }
+                        _ => {
+                            panic!("unknown fan_event_info_header.type={event_info_type}")
+                        }
+                    }
+                    header_offset += event_info_len;
+                }
+
                 // #define FAN_EVENT_NEXT(meta, len) ((len) -= (meta)->event_len, (struct fanotify_event_metadata*)(((char*)(meta)) + (meta) -> event_len)
                 // meta = FAN_EVENT_NEXT(meta, len) translate to:
                 //   len -= meta->event_len; // shrink rest length
@@ -115,7 +162,7 @@ impl Fanotify {
                 //      + (meta) -> event_len                    // add event_len to move to next
                 //   );
                 offset += event.event_len as usize;
-                result.push(Event::new(event));
+                result.push(Event::new(event, event_info));
             }
         }
 
@@ -139,12 +186,17 @@ impl Fanotify {
 
 pub struct Event {
     pub fanotify_event_metadata: libc::fanotify_event_metadata,
+    pub event_info: Vec<EventInfo>,
 }
 
 impl Event {
-    fn new(fanotify_event_metadata: libc::fanotify_event_metadata) -> Self {
+    fn new(
+        fanotify_event_metadata: libc::fanotify_event_metadata,
+        event_info: Vec<EventInfo>,
+    ) -> Self {
         Self {
             fanotify_event_metadata,
+            event_info,
         }
     }
     // compatible to nix::sys::fanotify::FanotifyEvent
@@ -189,6 +241,13 @@ impl Drop for Event {
             panic!("Closing an invalid file descriptor!");
         };
     }
+}
+
+#[derive(Debug)]
+pub enum EventInfo {
+    Fid(libc::fanotify_event_info_fid),
+    PidFd(libc::fanotify_event_info_pidfd),
+    Error(libc::fanotify_event_info_error),
 }
 
 pub struct Response {

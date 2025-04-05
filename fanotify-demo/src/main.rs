@@ -161,117 +161,132 @@ fn main() -> Result<(), Error> {
             continue;
         }
         for event in events.iter_mut() {
-            let Some(fd) = event.fd() else {
-                if init_flags & (InitFlags::FAN_REPORT_FID | InitFlags::FAN_REPORT_DIR_FID)
-                    != InitFlags::empty()
-                {
-                    warn!("fid not implementd");
-                } else {
-                    warn!("queue full");
-                }
-                continue;
-            };
-            let path = match std::fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd())) {
-                Ok(p) => p,
-                Err(err) => {
-                    warn!(
-                        "failed to read fd link for fd {}: {:?}",
-                        fd.as_raw_fd(),
-                        err
-                    );
-                    continue;
-                }
-            };
-            let cmdline_raw = match std::fs::read(format!("/proc/{}/cmdline", event.pid())) {
-                Ok(raw) => raw,
-                Err(err) => {
-                    warn!(
-                        "failed to read pid cmdline for fd {}: {:?}",
-                        event.pid(),
-                        err
-                    );
-                    continue;
-                }
-            };
-
-            let cmdline = if cmdline_raw.len() > 0 {
-                Some(
-                    cmdline_raw
-                        .split(|&b| b == 0)
-                        .map(|v| String::from_utf8_lossy(v))
-                        .collect::<Vec<Cow<str>>>(),
-                )
-            } else {
-                None
-            };
-
-            trace!(
-                "++++++++= {:?} {} {:?} {:?}",
-                fd,
-                event.pid(),
-                event.mask(),
-                path
-            );
-            let arg0 = if let Some(cmdline) = cmdline.as_ref() {
-                for (idx, arg) in cmdline.iter().enumerate() {
-                    trace!(" - {}: {}", idx, arg);
-                }
-
-                let arg0 = cmdline[0].to_string();
-
-                arg0map.insert(event.pid(), arg0.clone());
-
-                arg0
-            } else if arg0map.contains_key(&event.pid()) {
-                arg0map[&event.pid()].clone()
-            } else {
-                "".to_string()
-            };
-            match event.mask() {
-                MaskFlags::FAN_ACCESS_PERM
-                | MaskFlags::FAN_OPEN_PERM
-                | MaskFlags::FAN_OPEN_EXEC_PERM => {
-                    let allowed = match std::fs::metadata(&path) {
-                        Ok(metadata) => {
-                            // is a directory or filled with content
-                            metadata.is_dir() || ready.contains(&path)
-                        }
-                        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
-                    };
-                    if allowed || whitelist.contains(&arg0) || storage_provider.contains(&arg0) {
-                        info!("<<<<< {} allowed", fd.as_raw_fd());
-                        if let Err(err) =
-                            fan.write_response(FanotifyResponse::new(fd, Response::FAN_ALLOW))
-                        {
-                            warn!("write response for {} failed: {}", fd.as_raw_fd(), err);
-                        }
+            if event.mask().is_permission_event() {
+                // permission event
+                let Some(fd) = event.fd() else {
+                    if init_flags & (InitFlags::FAN_REPORT_FID | InitFlags::FAN_REPORT_DIR_FID)
+                        != InitFlags::empty()
+                    {
+                        warn!("fid not implementd");
                     } else {
-                        let fd = event.forget_fd();
-                        info!("<<<<< {} defered", fd.as_raw_fd());
-                        if let Some(fds) = bufferdfds.get_mut(&path) {
-                            fds.push(fd);
-                        } else {
-                            bufferdfds.insert(path, vec![fd]);
-                        }
+                        warn!("queue full");
                     }
-                }
-                MaskFlags::FAN_CLOSE_WRITE => {
-                    if storage_provider.contains(&arg0) {
-                        ready.insert(path.clone());
-                        if let Some(fds) = bufferdfds.remove(&path) {
-                            for fd in fds {
-                                if let Err(err) = fan.write_response(FanotifyResponse::new(
-                                    fd.as_fd(),
-                                    Response::FAN_ALLOW,
-                                )) {
-                                    warn!("write response for {} failed: {}", fd.as_raw_fd(), err);
-                                }
-                                info!(">>>>> {} allowed(defer)", fd.as_raw_fd());
+                    continue;
+                };
+                let path = match std::fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd())) {
+                    Ok(p) => p,
+                    Err(err) => {
+                        warn!(
+                            "failed to read fd link for fd {}: {:?}",
+                            fd.as_raw_fd(),
+                            err
+                        );
+                        continue;
+                    }
+                };
+                let cmdline_raw = match std::fs::read(format!("/proc/{}/cmdline", event.pid())) {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        warn!(
+                            "failed to read pid cmdline for fd {}: {:?}",
+                            event.pid(),
+                            err
+                        );
+                        continue;
+                    }
+                };
+
+                let cmdline = if cmdline_raw.len() > 0 {
+                    Some(
+                        cmdline_raw
+                            .split(|&b| b == 0)
+                            .map(|v| String::from_utf8_lossy(v))
+                            .collect::<Vec<Cow<str>>>(),
+                    )
+                } else {
+                    None
+                };
+
+                trace!(
+                    "++++++++ permission event:{} {:?}  {:?} {:?}",
+                    event.pid(),
+                    event.mask(),
+                    fd,
+                    path
+                );
+                let arg0 = if let Some(cmdline) = cmdline.as_ref() {
+                    for (idx, arg) in cmdline.iter().enumerate() {
+                        trace!(" - {}: {}", idx, arg);
+                    }
+
+                    let arg0 = cmdline[0].to_string();
+
+                    arg0map.insert(event.pid(), arg0.clone());
+
+                    arg0
+                } else if arg0map.contains_key(&event.pid()) {
+                    arg0map[&event.pid()].clone()
+                } else {
+                    "".to_string()
+                };
+                match event.mask() {
+                    MaskFlags::FAN_ACCESS_PERM
+                    | MaskFlags::FAN_OPEN_PERM
+                    | MaskFlags::FAN_OPEN_EXEC_PERM => {
+                        let allowed = match std::fs::metadata(&path) {
+                            Ok(metadata) => {
+                                // is a directory or filled with content
+                                metadata.is_dir() || ready.contains(&path)
+                            }
+                            Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+                        };
+                        if allowed || whitelist.contains(&arg0) || storage_provider.contains(&arg0)
+                        {
+                            info!("<<<<< {} allowed", fd.as_raw_fd());
+                            if let Err(err) =
+                                fan.write_response(FanotifyResponse::new(fd, Response::FAN_ALLOW))
+                            {
+                                warn!("write response for {} failed: {}", fd.as_raw_fd(), err);
+                            }
+                        } else {
+                            let fd = event.forget_fd();
+                            info!("<<<<< {} defered", fd.as_raw_fd());
+                            if let Some(fds) = bufferdfds.get_mut(&path) {
+                                fds.push(fd);
+                            } else {
+                                bufferdfds.insert(path, vec![fd]);
                             }
                         }
                     }
+                    MaskFlags::FAN_CLOSE_WRITE => {
+                        if storage_provider.contains(&arg0) {
+                            ready.insert(path.clone());
+                            if let Some(fds) = bufferdfds.remove(&path) {
+                                for fd in fds {
+                                    if let Err(err) = fan.write_response(FanotifyResponse::new(
+                                        fd.as_fd(),
+                                        Response::FAN_ALLOW,
+                                    )) {
+                                        warn!(
+                                            "write response for {} failed: {}",
+                                            fd.as_raw_fd(),
+                                            err
+                                        );
+                                    }
+                                    info!(">>>>> {} allowed(defer)", fd.as_raw_fd());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
+            } else {
+                trace!(
+                    "++++++++ notification event: {} {:?} {:?}",
+                    event.pid(),
+                    event.mask(),
+                    event.event_info,
+                );
             }
         }
     }
