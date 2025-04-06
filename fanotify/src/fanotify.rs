@@ -1,37 +1,25 @@
 use std::{
     ffi::CString,
-    mem::MaybeUninit,
-    os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd},
+    io::{Read, Write},
+    os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd},
     ptr::null,
 };
 
-use crate::{
-    consts::{EventFFlags, InitFlags, MarkFlags, MaskFlags},
-    error::Errno,
-};
+use crate::{consts::{EventFFlags, InitFlags, MarkFlags, MaskFlags}, messages::{Event, Response}};
 
 pub struct Fanotify {
     fd: OwnedFd,
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("cannot convert path into c string: {0}")]
-    PathError(#[from] std::ffi::NulError),
-
-    #[error("fanotify returned errno: {0}")]
-    FanotifyError(#[from] Errno),
-}
-
 impl Fanotify {
-    pub fn init(init_flags: InitFlags, event_fd_flags: EventFFlags) -> Result<Self, Error> {
+    pub fn init(init_flags: InitFlags, event_fd_flags: EventFFlags) -> std::io::Result<Self> {
         Self::try_init(init_flags, event_fd_flags)
     }
-    pub fn try_init(init_flags: InitFlags, event_fd_flags: EventFFlags) -> Result<Self, Error> {
+    pub fn try_init(init_flags: InitFlags, event_fd_flags: EventFFlags) -> std::io::Result<Self> {
         let fd = unsafe {
             let ret = libc::fanotify_init(init_flags.bits(), event_fd_flags.bits());
             if ret == -1 {
-                return Err(Error::FanotifyError(Errno::errno()));
+                return Err(std::io::Error::last_os_error());
             }
             OwnedFd::from_raw_fd(ret)
         };
@@ -44,7 +32,7 @@ impl Fanotify {
         mask: MaskFlags,
         dirfd: Option<BorrowedFd>,
         path: Option<P>,
-    ) -> Result<(), Error> {
+    ) -> std::io::Result<()> {
         let dirfd = match dirfd {
             Some(fd) => fd.as_raw_fd(),
             None => libc::AT_FDCWD,
@@ -73,196 +61,67 @@ impl Fanotify {
         };
 
         if result != 0 {
-            return Err(Error::FanotifyError(Errno::errno()));
+            return Err(std::io::Error::last_os_error());
         }
 
         Ok(())
     }
 
-    pub fn read_events(&self) -> Result<Vec<Event>, Error> {
+    pub fn read_events(&mut self) -> std::io::Result<Vec<Event>> {
         const BUFFER_SIZE: usize = 4096;
-        const EVENT_SIZE: usize = size_of::<libc::fanotify_event_metadata>();
         let mut buffer = [0u8; BUFFER_SIZE];
-        let mut result = Vec::new();
-        unsafe {
-            let nread = libc::read(self.fd.as_raw_fd(), buffer.as_mut_ptr().cast(), BUFFER_SIZE);
-            if nread < 0 {
-                return Err(Error::FanotifyError(Errno::new(nread as i32)));
-            }
-            let nread = nread as usize;
-            let mut offset = 0;
-            // #define FAN_EVENT_OK(meta, len) \
-            //   ((long)(len) => (long)FAN_EVENT_METADATA_LEN)                && // rest buffer can contain a metadata struct
-            //   (long)(meta) ->event_len >= (long)FAN_FAN_EVENT_METADATA_LEN && // struct contains valid size (not implemented)
-            //   (long)(meta) ->event_len <= (long)(len)                         // struct does not read over buffer boundary (not implemented)
-            while offset + EVENT_SIZE <= nread {
-                let mut uninited: MaybeUninit<libc::fanotify_event_metadata> =
-                    MaybeUninit::uninit();
-                std::ptr::copy(
-                    buffer.as_ptr().add(offset),
-                    uninited.as_mut_ptr().cast(),
-                    EVENT_SIZE,
-                );
-                let event = uninited.assume_init();
-
-                #[repr(C)]
-                union fanotify_event_info {
-                    header: libc::fanotify_event_info_header,
-                    fid: libc::fanotify_event_info_fid,
-                    pidfd: libc::fanotify_event_info_pidfd,
-                    error: libc::fanotify_event_info_error,
-                }
-
-                let mut event_info = Vec::new();
-
-                const HEADER_SIZE: usize = std::mem::size_of::<libc::fanotify_event_info_header>();
-
-                let mut header_offset = EVENT_SIZE;
-                while header_offset + HEADER_SIZE < event.event_len as usize {
-                    // pre-check
-                    let mut uninited: MaybeUninit<fanotify_event_info> = MaybeUninit::uninit();
-
-                    std::ptr::copy(
-                        buffer.as_ptr().add(offset+EVENT_SIZE),
-                        uninited.as_mut_ptr().cast(),
-                        EVENT_SIZE,
-                    );
-                    std::ptr::copy(
-                        buffer.as_ptr().add(offset + header_offset),
-                        uninited.as_mut_ptr().add(header_offset).cast(),
-                        (*uninited.as_ptr()).header.len as usize - HEADER_SIZE,
-                    );
-                    let event_info_len = (*uninited.as_ptr()).header.len as usize;
-                    let event_info_type = (*uninited.as_ptr()).header.info_type;
-
-                    match event_info_type {
-                        libc::FAN_EVENT_INFO_TYPE_FID | libc::FAN_EVENT_INFO_TYPE_DFID_NAME | libc::FAN_EVENT_INFO_TYPE_DFID=> {
-                            event_info.push(EventInfo::Fid(uninited.assume_init().fid));
-                        }
-                        libc::FAN_EVENT_INFO_TYPE_PIDFD => {
-                            event_info.push(EventInfo::PidFd(uninited.assume_init().pidfd));
-                        }
-                        libc::FAN_EVENT_INFO_TYPE_ERROR => {
-                            event_info.push(EventInfo::PidFd(uninited.assume_init().pidfd));
-                        }
-                        _ => {
-                            panic!("unknown fan_event_info_header.type={event_info_type}")
-                        }
-                    }
-                    header_offset += event_info_len;
-                }
-
-                // #define FAN_EVENT_NEXT(meta, len) ((len) -= (meta)->event_len, (struct fanotify_event_metadata*)(((char*)(meta)) + (meta) -> event_len)
-                // meta = FAN_EVENT_NEXT(meta, len) translate to:
-                //   len -= meta->event_len; // shrink rest length
-                //   ,                       // comma operator, evaluate first express, but not using its result
-                //
-                //   meta = (struct fanotify_event_metadata*) (  // cast pointer back to metadata type
-                //      ((char*)(meta))                          // discard metadata type to increase pointer by 1
-                //      + (meta) -> event_len                    // add event_len to move to next
-                //   );
-                offset += event.event_len as usize;
-                result.push(Event::new(event, event_info));
-            }
-        }
-
-        Ok(result)
+        let nread = self.read(&mut buffer)?;
+        Ok(Event::extract_from(&buffer[0..nread]))
     }
 
-    pub fn write_response(&self, response: Response) -> Result<(), Errno> {
-        let n = unsafe {
-            libc::write(
-                self.fd.as_raw_fd(),
+    pub fn write_response(&mut self, response: Response) -> std::io::Result<usize> {
+        self.write(unsafe {
+            std::slice::from_raw_parts(
                 (&response.inner as *const libc::fanotify_response).cast(),
                 size_of::<libc::fanotify_response>(),
             )
-        };
-        if n == -1 {
-            return Err(Errno::errno());
-        }
+        })
+    }
+}
+
+
+impl AsFd for Fanotify {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
+    }
+}
+
+impl AsRawFd for Fanotify {
+    fn as_raw_fd(&self) -> std::os::unix::prelude::RawFd {
+        self.fd.as_raw_fd()
+    }
+}
+
+impl Read for Fanotify {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        Ok(unsafe {
+            let nread = libc::read(self.fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len());
+            if nread < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            nread as usize
+        })
+    }
+}
+
+impl Write for Fanotify {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(unsafe {
+            let nread = libc::write(self.fd.as_raw_fd(), buf.as_ptr().cast(), buf.len());
+            if nread < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            nread as usize
+        })
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }
 
-pub struct Event {
-    pub fanotify_event_metadata: libc::fanotify_event_metadata,
-    pub event_info: Vec<EventInfo>,
-}
-
-impl Event {
-    fn new(
-        fanotify_event_metadata: libc::fanotify_event_metadata,
-        event_info: Vec<EventInfo>,
-    ) -> Self {
-        Self {
-            fanotify_event_metadata,
-            event_info,
-        }
-    }
-    // compatible to nix::sys::fanotify::FanotifyEvent
-    pub fn metadata_version(&self) -> u8 {
-        self.fanotify_event_metadata.vers
-    }
-    pub fn check_metadata_version(&self) -> bool {
-        self.fanotify_event_metadata.vers == libc::FANOTIFY_METADATA_VERSION
-    }
-    pub fn fd(&self) -> Option<BorrowedFd> {
-        if self.fanotify_event_metadata.fd == libc::FAN_NOFD {
-            None
-        } else {
-            Some(unsafe { BorrowedFd::borrow_raw(self.fanotify_event_metadata.fd) })
-        }
-    }
-    pub fn pid(&self) -> i32 {
-        self.fanotify_event_metadata.pid
-    }
-    pub fn mask(&self) -> MaskFlags {
-        MaskFlags::from_bits_truncate(self.fanotify_event_metadata.mask)
-    }
-
-    // sometimes we don't want to close the fd immediately, so we forget about it, store it somewhere, and drop it later
-    // it is safe to just call this method without store it in variable, it will be dropped immediately due to the nature of rust
-    pub fn forget_fd(&mut self) -> OwnedFd {
-        let fd = self.fanotify_event_metadata.fd;
-        self.fanotify_event_metadata.fd = libc::FAN_NOFD;
-
-        unsafe { OwnedFd::from_raw_fd(fd) }
-    }
-}
-
-impl Drop for Event {
-    fn drop(&mut self) {
-        if self.fanotify_event_metadata.fd == libc::FAN_NOFD {
-            return;
-        }
-
-        let e = unsafe { libc::close(self.fanotify_event_metadata.fd) };
-        if !std::thread::panicking() && e == libc::EBADF {
-            panic!("Closing an invalid file descriptor!");
-        };
-    }
-}
-
-#[derive(Debug)]
-pub enum EventInfo {
-    Fid(libc::fanotify_event_info_fid),
-    PidFd(libc::fanotify_event_info_pidfd),
-    Error(libc::fanotify_event_info_error),
-}
-
-pub struct Response {
-    inner: libc::fanotify_response,
-}
-
-impl Response {
-    pub const FAN_ALLOW: u32 = libc::FAN_ALLOW;
-    pub const FAN_DENY: u32 = libc::FAN_DENY;
-    pub fn new(fd: BorrowedFd, response: u32) -> Self {
-        Self {
-            inner: libc::fanotify_response {
-                fd: fd.as_raw_fd(),
-                response,
-            },
-        }
-    }
-}

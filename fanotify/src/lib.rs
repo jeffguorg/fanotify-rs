@@ -4,7 +4,9 @@ mod macros;
 pub mod consts;
 pub mod error;
 pub mod fanotify;
+pub mod messages;
 
 pub use bitflags;
 
-pub use fanotify::{Error, Event, Fanotify, Response, Response as FanotifyResponse};
+pub use fanotify::Fanotify;
+pub use messages::{Event, Response, Response as FanotifyResponse};

@@ -11,11 +11,11 @@ use nix::sys::signal::{SaFlags, SigAction, SigSet, Signal};
 
 #[derive(thiserror::Error, Debug)]
 enum Error {
-    #[error("fanotify failed: {0}")]
-    FanotifyError(#[from] ::fanotify::Error),
+    #[error("io error: {0}")]
+    IOError(#[from] std::io::Error),
 
-    #[error("nix failed: {0}")]
-    Errno(#[from] nix::Error),
+    #[error("os error: {0}")]
+    NixErrno(#[from] nix::Error)
 }
 
 extern "C" fn interrupt_handler(_: i32) {
@@ -129,7 +129,7 @@ fn main() -> Result<(), Error> {
     );
     info!("mask flag: {:x} {:?}", mask_flags.bits(), mask_flags);
 
-    let fan = Fanotify::init(init_flags, event_f_flags)?;
+    let mut fan = Fanotify::init(init_flags, event_f_flags)?;
     for path in args.path {
         debug!("marking path: {path}");
         fan.mark(MarkFlags::FAN_MARK_ADD, mask_flags, None, Some(&path))?;
