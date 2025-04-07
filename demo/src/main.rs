@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::ops::BitOr;
 use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 
-use ::fanotify::{consts::*, *};
+use ::fanotify::{prelude::*, bitflags};
 use clap::Parser;
 use log::*;
 use nix::sys::signal::{SaFlags, SigAction, SigSet, Signal};
@@ -129,7 +129,7 @@ fn main() -> Result<(), Error> {
     );
     info!("mask flag: {:x} {:?}", mask_flags.bits(), mask_flags);
 
-    let mut fan = Fanotify::init(init_flags, event_f_flags)?;
+    let mut fan = Fanotify::<OwnedFd>::init(init_flags, event_f_flags)?;
     for path in args.path {
         debug!("marking path: {path}");
         fan.mark(MarkFlags::FAN_MARK_ADD, mask_flags, None, Some(&path))?;

@@ -160,9 +160,14 @@ pub enum EventInfo {
     Error(libc::fanotify_event_info_error),
 }
 
+// if tokio is enabled, Response need to be sendable across threads
+#[cfg_attr(feature="aio", derive(Clone, Copy))]
 pub struct Response {
     pub inner: libc::fanotify_response,
 }
+
+#[cfg(feature="aio")]
+unsafe impl Send for Response{}
 
 impl Response {
     pub const FAN_ALLOW: u32 = libc::FAN_ALLOW;

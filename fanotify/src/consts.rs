@@ -63,7 +63,7 @@ fa_bitflags! {
         O_APPEND;
         O_DSYNC;
         O_NOATIME;
-        O_NONBLOCK;
+        O_NONBLOCK; // is required if aio is enabled
         O_SYNC;
     }
 

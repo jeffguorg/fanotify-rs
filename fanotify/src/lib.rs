@@ -5,8 +5,9 @@ pub mod consts;
 pub mod error;
 pub mod fanotify;
 pub mod messages;
+pub mod prelude;
 
 pub use bitflags;
 
-pub use fanotify::Fanotify;
-pub use messages::{Event, Response, Response as FanotifyResponse};
+#[cfg(feature="aio")]
+pub mod aio;
