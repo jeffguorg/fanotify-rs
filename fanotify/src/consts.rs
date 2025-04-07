@@ -118,7 +118,7 @@ fa_bitflags! {
 impl MaskFlags {
     pub fn is_permission_event(&self) -> bool {
         match self.bits() {
-            FAN_OPEN_PERM | FAN_ACCESS | FAN_OPEN_EXEC_PERM => true,
+            FAN_OPEN_PERM | FAN_ACCESS_PERM | FAN_OPEN_EXEC_PERM => true,
             _ => false,
         }
     }
