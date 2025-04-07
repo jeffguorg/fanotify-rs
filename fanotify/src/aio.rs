@@ -1,6 +1,4 @@
-use std::
-    os::fd::{FromRawFd, OwnedFd}
-;
+use std::os::fd::{FromRawFd, OwnedFd};
 
 use tokio::io::unix::AsyncFd;
 
@@ -79,7 +77,7 @@ impl AsyncRead for Fanotify<AsyncFd<Fanotify<OwnedFd>>> {
             std::task::Poll::Ready(guard_result) => guard_result,
             std::task::Poll::Pending => return std::task::Poll::Pending,
         }?;
-        let nread = guard.get_inner_mut().read(buf.initialize_unfilled())?;
+        let nread = std::io::Read::read(guard.get_inner_mut(), buf.initialize_unfilled())?;
         guard.clear_ready();
 
         buf.advance(nread);
@@ -98,7 +96,7 @@ impl AsyncWrite for Fanotify<AsyncFd<Fanotify<OwnedFd>>> {
             std::task::Poll::Ready(guard_result) => guard_result,
             std::task::Poll::Pending => return std::task::Poll::Pending,
         }?;
-        let nwrite = guard.get_inner_mut().write(&buf)?;
+        let nwrite = std::io::Write::write(guard.get_inner_mut(), &buf)?;
         guard.clear_ready();
         std::task::Poll::Ready(Ok(nwrite))
     }

@@ -16,3 +16,6 @@ tokio = { version = "1", features = ["full"] }
 
 # reclaim libc with feature extra_traits to provide Debug impl
 libc = { version = "0.2", features = ["extra_traits"] }
+
+[features]
+aio-async-read-write = ["fanotify/aio-async-read-write"]
