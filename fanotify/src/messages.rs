@@ -19,7 +19,7 @@ impl Event {
         }
     }
 
-    pub fn extract_from(buf: &[u8]) -> Vec<Event> {
+    pub fn extract_from(buf: &[u8]) -> Vec<Self> {
         const EVENT_SIZE: usize = size_of::<libc::fanotify_event_metadata>();
         let nread = buf.len() as usize;
 
