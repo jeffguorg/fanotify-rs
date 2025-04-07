@@ -38,4 +38,4 @@ aio-async-read-write = []
 libc-extra-traits = ["libc/extra_traits"]
 
 sync-demo = ["dep:nix", "dep:clap", "dep:log", "dep:env_logger"]
-async-demo = ["dep:nix", "dep:clap", "dep:log", "dep:tracing", "dep:tracing-subscriber", "tokio/full"]
+async-demo = ["dep:nix", "dep:clap", "dep:log", "dep:tracing", "dep:tracing-subscriber", "aio", "tokio/full"]
