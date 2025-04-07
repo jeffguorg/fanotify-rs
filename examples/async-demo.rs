@@ -44,6 +44,9 @@ struct Args {
     event_f_flags: Vec<String>,
     #[clap(long, short, default_values_t=default_mask_flags())]
     mask_flags: Vec<String>,
+
+    #[clap(long, default_value_t=true)]
+    cap_sys_admin_warn_only: bool,
 }
 
 fn default_whitelist() -> Vec<String> {
@@ -94,7 +97,7 @@ fn reduce_flags<
             let Some(flag) = F::from_name(&s.as_str()) else {
                 panic!("invalid value for flag: {}", s)
             };
-            trace!("flag {} is parted into {:?}", s, flag);
+            trace!("flag {} is parsed into {:?}", s, flag);
 
             flag
         })
@@ -114,6 +117,25 @@ async fn main() -> std::io::Result<()> {
     let init_flags: InitFlags = reduce_flags(&args.init_flags);
     let event_f_flags: EventFFlags = reduce_flags(&args.event_f_flags);
     let mask_flags: MaskFlags = reduce_flags(&args.mask_flags);
+
+    let mut need_cap_sys_admin = false;
+
+    if init_flags & (InitFlags::FAN_CLASS_CONTENT | InitFlags::FAN_CLASS_PRE_CONTENT) != InitFlags::empty() {
+        need_cap_sys_admin = true;
+    }
+    if init_flags & (InitFlags::FAN_UNLIMITED_MARKS | InitFlags::FAN_UNLIMITED_QUEUE) != InitFlags::empty() {
+        need_cap_sys_admin = true;
+    }
+    if init_flags & InitFlags::FAN_REPORT_TID != InitFlags::empty() {
+        need_cap_sys_admin = true;
+    }
+    if init_flags & InitFlags::FAN_ENABLE_AUDIT != InitFlags::empty() {
+        need_cap_sys_admin = true;
+    }
+    let current_exe = std::env::current_exe()?;
+    if need_cap_sys_admin {
+        trace!("need cap_sys_admin: {need_cap_sys_admin}. if fanotify_init failed with permission denied, sudo setcap cap_sys_admin+p {}", current_exe.to_str().unwrap());
+    }
 
     info!("init flag: {:x} {:?}", init_flags.bits(), init_flags);
     info!(
