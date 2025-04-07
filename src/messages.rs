@@ -153,7 +153,7 @@ impl Drop for Event {
     }
 }
 
-#[derive(Debug)]
+#[cfg_attr(feature="libc-extra-traits", derive(Debug))]
 pub enum EventInfo {
     Fid(libc::fanotify_event_info_fid),
     PidFd(libc::fanotify_event_info_pidfd),

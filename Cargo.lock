@@ -77,19 +77,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-demo"
-version = "0.1.0"
-dependencies = [
- "clap",
- "fanotify",
- "libc",
- "thiserror",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -181,19 +168,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
-name = "demo"
-version = "0.1.0"
-dependencies = [
- "clap",
- "env_logger",
- "fanotify",
- "libc",
- "log",
- "nix",
- "thiserror",
-]
-
-[[package]]
 name = "env_filter"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -221,9 +195,15 @@ name = "fanotify"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "clap",
+ "env_logger",
  "libc",
+ "log",
+ "nix",
  "thiserror",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

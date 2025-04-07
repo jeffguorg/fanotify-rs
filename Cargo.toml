@@ -1,7 +1,41 @@
-[workspace]
-resolver = "3"
-members = [
-    "fanotify",
-    "demo",
-    "async-demo",
-]
+[package]
+name = "fanotify"
+version = "0.1.0"
+edition = "2021"
+
+authors = ["Chao Guo <guochao@cn.nutstore.net>", "jeffguorg@gmail.com"]
+repository = "https://github.com/jeffguorg/fanotify-rs"
+license = "MIT"
+keywords = ["linux", "fanotify", "filesystem"]
+categories = ["filesystem", "os::linux-apis"]
+
+[[example]]
+name = "async-demo"
+required-features = ["async-demo"]
+
+[[example]]
+name = "sync-demo"
+required-features = ["sync-demo"]
+
+[dependencies]
+tokio = { version = "1", optional = true }
+libc = "0.2"
+thiserror = "2"
+bitflags = "2"
+
+# example dependencies
+nix = { version = "0.29", features = ["signal", "user"], optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+log = { version = "0.4", optional = true }
+env_logger = { version = "0.11", optional = true }
+tracing = { version = "0.1", optional = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+
+[features]
+default = ["libc-extra-traits"]
+aio = ["dep:tokio"]
+aio-async-read-write = []
+libc-extra-traits = ["libc/extra_traits"]
+
+sync-demo = ["dep:nix", "dep:clap", "dep:log", "dep:env_logger"]
+async-demo = ["dep:nix", "dep:clap", "dep:log", "dep:tracing", "dep:tracing-subscriber", "tokio/full"]
